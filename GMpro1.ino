@@ -162,7 +162,9 @@ void handleIndex() {
   html += "<div style='margin-top:10px;'><label>SSID Count:</label><input type='number' name='count' value='" + String(beacon_count) + "'></div></form></div>";
 
   html += "<div id='s' class='tab-content'><h3>File Manager</h3><div class='input-group' style='display:flex; gap:5px; align-items: flex-end;'><div style='flex-grow:1'><label>Template HTML:</label><select>";
-  for(int i=1; i<=4; i++) html += "<option " + (selectedET==i?"selected":"") + ">etwin" + String(i) + ".html</option>";
+  for(int i=1; i<=4; i++) {
+    html += String("<option ") + (selectedET==i?"selected":"") + ">etwin" + String(i) + ".html</option>";
+  }
   html += "</select></div><button class='btn' style='width:80px; height:32px;' onclick='window.open(\"/preview\")'>PREVIEW</button></div>";
   html += "<form action='/upload' method='POST' enctype='multipart/form-data'><label>Upload New Template:</label><div style='display:flex; gap:5px;'><input type='file' name='upload' style='font-size:10px; padding:3px;'><button type='submit' class='btn' style='width:80px;'>UPLOAD</button></div></form><hr>";
   html += "<h3>Device Configuration</h3><div class='input-group'><label>Hidden SSID Alat:</label><a href='/?hidden=" + String(!hidden_ssid) + "'><button class='btn' style='width:80px;'>" + (hidden_ssid?"ON":"OFF") + "</button></a></div>";

@@ -1,5 +1,7 @@
 #include <Arduino.h>
-#include <DNSServer.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <#include.h>
 #include <SimpleCLI.h>
 //#include "mac.h"
 #include "LittleFS.h"

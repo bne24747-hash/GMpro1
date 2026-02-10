@@ -1,18 +1,22 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <DNSServer.h>
 #include <SimpleCLI.h>
-//#include "mac.h"
 #include "LittleFS.h"
+
+// Deklarasi Object (Harus di sini agar dikenal oleh web.h dan sniffer.h)
+ESP8266WebServer webServer(80);
+
+// Panggil file pendukung (Urutan ini jangan dibalik!)
+#include "sniffer.h"
 #include "web.h"
 #include "beacon.h"
-#include "sniffer.h"
-//#include "deauth_detector.h"
-//#include "probe_sniffer.h"
-#define MAC "C8:C9:A3:0C:5F:3F"
-#define MAC2 "C8:C9:A3:6B:36:74"
-bool lock = true;
-SimpleCLI cli;
+
+// Tambahkan variabel ini jika error 'not declared' masih muncul
+char ip[16] = "192.168.4.1";
+char dns[16] = "192.168.4.1";
+
 Command send_deauth;
 Command stop_deauth;
 Command reboot;

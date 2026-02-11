@@ -9,12 +9,12 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 
-// SDK Deauther Core - Pastikan Library ini ada di folder /libraries
-#include "A_Config.h" 
-#include "Attack.h"
-#include "Scan.h"
+// SDK Deauther Core
+#include <A_Config.h>
+#include <Attack.h>
+#include <Scan.h>
 
-// --- KONFIGURASI ---
+// --- KONFIGURASI GLOBAL ---
 const char* apSSID = "GMpro";
 const char* apPASS = "Sangkur87";
 const int LED_PIN = 2;
@@ -32,7 +32,7 @@ unsigned long lastHop = 0;
 unsigned long prevBlink = 0;
 int currentCh = 1;
 
-// --- UI WEB ---
+// --- UI WEB (Disimpan di PROGMEM) ---
 const char INDEX_HTML[] PROGMEM = R"raw(
 <!DOCTYPE html>
 <html>
@@ -100,13 +100,14 @@ const char INDEX_HTML[] PROGMEM = R"raw(
 void setup() {
     Serial.begin(115200);
     pinMode(LED_PIN, OUTPUT);
-    LittleFS.begin();
+    
+    if(!LittleFS.begin()) Serial.println("LittleFS Mount Failed");
 
     // --- INISIALISASI SDK ---
     scanObj.begin();
     attack.begin();
 
-    // 1. WiFi Admin (Channel 1 tetap)
+    // 1. WiFi Admin
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAP(apSSID, apPASS, 1, 0); 
     dnsServer.start(53, "*", WiFi.softAPIP());
@@ -115,13 +116,14 @@ void setup() {
         request->send_P(200, "text/html", INDEX_HTML);
     });
 
-    server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request){
+    // Perbaikan Capture Clause [=] agar bisa akses global object
+    server.on("/scan", HTTP_GET, [=](AsyncWebServerRequest *request){
         scanObj.start(0); 
         String out = "<div class='wifi-row' style='background:#222'><div>SSID</div><div>CH</div><div>SIG</div><div>SEL</div></div>";
         for(int i=0; i<scanObj.count(); i++){
             String name = scanObj.getSSID(i);
             if(name == "" || name.length() == 0) name = "[HIDDEN]";
-            out += "<div class='wifi-row'><div>"+name+"</div><div>"+String(scanObj.getChannel(i))+"</div><div>"+String(scanObj.getRSSI(i))+"</div><div><input type='checkbox'></div></div>";
+            out += "<div class='wifi-row'><div>" + name + "</div><div>" + String(scanObj.getChannel(i)) + "</div><div>" + String(scanObj.getRSSI(i)) + "</div><div><input type='checkbox'></div></div>";
         }
         request->send(200, "text/plain", out);
     });
@@ -131,7 +133,7 @@ void setup() {
         request->send(200, "text/plain", "OK");
     });
 
-    server.on("/cmd", HTTP_GET, [](AsyncWebServerRequest *request){
+    server.on("/cmd", HTTP_GET, [=](AsyncWebServerRequest *request){
         String type = request->getParam("type")->value();
         String action = request->getParam("do")->value();
         
@@ -167,7 +169,6 @@ void loop() {
             
             wifi_set_channel(currentCh);
             
-            // Kirim Deauth hanya jika bukan di Channel Admin (Ch 1)
             if (currentCh != 1) { 
                 attack.start(true, false, false, false, 0); 
             }

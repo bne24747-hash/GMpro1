@@ -17,30 +17,41 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Async Dependencies
+      - name: Setup Libraries
         run: |
-          mkdir -p $HOME/Arduino/libraries
-          # Install library pendukung wajib
+          LIB_PATH=$HOME/Arduino/libraries
+          mkdir -p $LIB_PATH
+          
+          # Install Library Standar
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson"@5.13.5
-          # Clone library web server
-          git clone https://github.com/me-no-dev/ESPAsyncTCP.git $HOME/Arduino/libraries/ESPAsyncTCP
-          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $HOME/Arduino/libraries/ESPAsyncWebServer
+          
+          # Clone Async Libraries
+          git clone https://github.com/me-no-dev/ESPAsyncTCP.git $LIB_PATH/ESPAsyncTCP
+          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $LIB_PATH/ESPAsyncWebServer
+          
+          # FORCE SCAN: Mencari folder 'Attack' di seluruh direktori .arduino15
+          # Lalu membuat shortcut (Symlink) ke folder library utama
+          echo "Searching for Deauther Core Libraries..."
+          ATTACK_SRC=$(find $HOME/.arduino15 -name "Attack.h" | head -n 1 | xargs dirname)
+          SCAN_SRC=$(find $HOME/.arduino15 -name "Scan.h" | head -n 1 | xargs dirname)
+          CONFIG_SRC=$(find $HOME/.arduino15 -name "A_Config.h" | head -n 1 | xargs dirname)
+          
+          if [ -z "$ATTACK_SRC" ]; then
+            echo "FAILED: Deauther Core not found!"
+            exit 1
+          fi
+
+          ln -s "$ATTACK_SRC" $LIB_PATH/Attack
+          ln -s "$SCAN_SRC" $LIB_PATH/Scan
+          ln -s "$CONFIG_SRC" $LIB_PATH/A_Config
+          
+          echo "Libraries linked successfully from $ATTACK_SRC"
 
       - name: Compile GMpro Firmware
         run: |
-          # Mencari lokasi core deauther secara dinamis
-          DEAUTHER_PATH=$(arduino-cli core list --format json | jq -r '.[] | select(.id=="deauther:esp8266") | .installed' | xargs -I {} find $HOME/.arduino15/packages/deauther -name "Attack" -type d | head -n 1 | xargs dirname)
-          
-          echo "Core libraries found at: $DEAUTHER_PATH"
-
-          # Kompilasi dengan menyertakan path library core secara eksplisit
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
-          --libraries "$DEAUTHER_PATH/Attack" \
-          --libraries "$DEAUTHER_PATH/Scan" \
-          --libraries "$DEAUTHER_PATH/A_Config" \
-          --libraries "$DEAUTHER_PATH/A_SSID" \
           ./GMpro1.ino --output-dir ./build
 
       - name: Upload Binary

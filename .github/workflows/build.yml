@@ -17,26 +17,33 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Library from Repo Zip
+      - name: Install Dependencies & Async Libraries
         run: |
-          # Membuat folder library manual
-          mkdir -p /home/runner/Arduino/libraries
+          # 1. Buat direktori library jika belum ada
+          mkdir -p $HOME/Arduino/libraries
           
-          # Mengambil library SimpleCLI
+          # 2. Install library yang tersedia di manager
           arduino-cli lib install "SimpleCLI"
           
-          # Unzip ArduinoJson versi spesifik yang ada di repo kamu
-          # Pastikan nama file zip di repo kamu benar-benar "ArduinoJson-5.13.5.zip"
-          unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
+          # 3. FIX: Clone library Async yang hilang (Penyebab Error)
+          git clone https://github.com/me-no-dev/ESPAsyncTCP.git $HOME/Arduino/libraries/ESPAsyncTCP
+          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $HOME/Arduino/libraries/ESPAsyncWebServer
           
-          # List library untuk memastikan file ada
-          ls -R /home/runner/Arduino/libraries/
+          # 4. Handle ArduinoJson (Gunakan library manager jika memungkinkan atau tetap unzip)
+          if [ -f "ArduinoJson-5.13.5.zip" ]; then
+            unzip -o ArduinoJson-5.13.5.zip -d $HOME/Arduino/libraries/
+          else
+            arduino-cli lib install "ArduinoJson"@5.13.5
+          fi
+          
+          # 5. Verifikasi folder library
+          ls -R $HOME/Arduino/libraries/
 
       - name: Compile GMpro Firmware
         run: |
-          # Menggunakan FQBN paling stabil untuk SDK Deauther
-          # File sudah disesuaikan menjadi GMpro1.ino sesuai screenshot GitHub kamu
+          # Menggunakan FQBN deauther:esp8266:generic dengan Flash Size 4MB (2MB FS)
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
+          --libraries $HOME/Arduino/libraries \
           ./GMpro1.ino --output-dir ./build
 
       - name: Upload Binary

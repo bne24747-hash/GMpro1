@@ -1,4 +1,4 @@
-name: Compile GMpro Deauther Fixed Library
+name: Compile GMpro Deauther Final Fix
 
 on: [push, workflow_dispatch]
 
@@ -17,39 +17,31 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Setup Libraries
+      - name: Install All Required Libraries
         run: |
           LIB_PATH=$HOME/Arduino/libraries
           mkdir -p $LIB_PATH
           
-          # Install Library Standar
+          # 1. Install Library dari Manager
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson"@5.13.5
           
-          # Clone Async Libraries
+          # 2. Clone Library Web Server (Async)
           git clone https://github.com/me-no-dev/ESPAsyncTCP.git $LIB_PATH/ESPAsyncTCP
           git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $LIB_PATH/ESPAsyncWebServer
           
-          # FORCE SCAN: Mencari folder 'Attack' di seluruh direktori .arduino15
-          # Lalu membuat shortcut (Symlink) ke folder library utama
-          echo "Searching for Deauther Core Libraries..."
-          ATTACK_SRC=$(find $HOME/.arduino15 -name "Attack.h" | head -n 1 | xargs dirname)
-          SCAN_SRC=$(find $HOME/.arduino15 -name "Scan.h" | head -n 1 | xargs dirname)
-          CONFIG_SRC=$(find $HOME/.arduino15 -name "A_Config.h" | head -n 1 | xargs dirname)
-          
-          if [ -z "$ATTACK_SRC" ]; then
-            echo "FAILED: Deauther Core not found!"
-            exit 1
-          fi
-
-          ln -s "$ATTACK_SRC" $LIB_PATH/Attack
-          ln -s "$SCAN_SRC" $LIB_PATH/Scan
-          ln -s "$CONFIG_SRC" $LIB_PATH/A_Config
-          
-          echo "Libraries linked successfully from $ATTACK_SRC"
+          # 3. FIX UTAMA: Clone Library Core langsung ke folder library utama
+          # Cara ini menjamin compiler menemukan Attack.h dan Scan.h
+          git clone --depth 1 https://github.com/SpacehuhnTech/ESP8266Deauther.git temp_deauther
+          cp -r temp_deauther/esp8266_deauther/src/libraries/Attack $LIB_PATH/
+          cp -r temp_deauther/esp8266_deauther/src/libraries/Scan $LIB_PATH/
+          cp -r temp_deauther/esp8266_deauther/src/libraries/A_Config $LIB_PATH/
+          cp -r temp_deauther/esp8266_deauther/src/libraries/A_SSID $LIB_PATH/
+          rm -rf temp_deauther
 
       - name: Compile GMpro Firmware
         run: |
+          # Menggunakan FQBN khusus Deauther dengan alokasi memori yang benar
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
           ./GMpro1.ino --output-dir ./build

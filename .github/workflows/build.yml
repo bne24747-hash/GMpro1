@@ -22,28 +22,29 @@ jobs:
           LIB_PATH=$HOME/Arduino/libraries
           mkdir -p $LIB_PATH
           
-          # 1. Install Library dari Manager
+          # 1. Install Library dari Manager Resmi
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson"@5.13.5
           
-          # 2. Clone Library Web Server (Async)
-          git clone https://github.com/me-no-dev/ESPAsyncTCP.git $LIB_PATH/ESPAsyncTCP
-          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $LIB_PATH/ESPAsyncWebServer
-          
-          # 3. FIX UTAMA: Clone Library Core langsung ke folder library utama
-          # Cara ini menjamin compiler menemukan Attack.h dan Scan.h
-          git clone --depth 1 https://github.com/SpacehuhnTech/ESP8266Deauther.git temp_deauther
-          cp -r temp_deauther/esp8266_deauther/src/libraries/Attack $LIB_PATH/
-          cp -r temp_deauther/esp8266_deauther/src/libraries/Scan $LIB_PATH/
-          cp -r temp_deauther/esp8266_deauther/src/libraries/A_Config $LIB_PATH/
-          cp -r temp_deauther/esp8266_deauther/src/libraries/A_SSID $LIB_PATH/
-          rm -rf temp_deauther
+          # 2. Clone Library Web Server (Menggunakan HTTPS tanpa Auth)
+          git clone --depth 1 https://github.com/me-no-dev/ESPAsyncTCP.git $LIB_PATH/ESPAsyncTCP
+          git clone --depth 1 https://github.com/me-no-dev/ESPAsyncWebServer.git $LIB_PATH/ESPAsyncWebServer
 
       - name: Compile GMpro Firmware
         run: |
-          # Menggunakan FQBN khusus Deauther dengan alokasi memori yang benar
+          # Mendapatkan path instalasi hardware secara dinamis
+          HARDWARE_PATH=$HOME/.arduino15/packages/deauther/hardware/esp8266/$(ls $HOME/.arduino15/packages/deauther/hardware/esp8266 | head -n 1)
+          SDK_LIBS=$HARDWARE_PATH/libraries
+          
+          echo "Using SDK Libraries from: $SDK_LIBS"
+
+          # Kompilasi dengan menyertakan folder library internal SDK secara langsung
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
+          --libraries $SDK_LIBS/Attack \
+          --libraries $SDK_LIBS/Scan \
+          --libraries $SDK_LIBS/A_Config \
+          --libraries $SDK_LIBS/A_SSID \
           ./GMpro1.ino --output-dir ./build
 
       - name: Upload Binary

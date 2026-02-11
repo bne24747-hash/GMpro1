@@ -1,4 +1,4 @@
-name: Compile GMpro Deauther Final Fix
+name: Compile GMpro Deauther Ultra Fix
 
 on: [push, workflow_dispatch]
 
@@ -17,34 +17,35 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install All Required Libraries
+      - name: Install All Libraries & SDK Headers
         run: |
           LIB_PATH=$HOME/Arduino/libraries
           mkdir -p $LIB_PATH
           
-          # 1. Install Library dari Manager Resmi
+          # 1. Install Library Standar
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson"@5.13.5
           
-          # 2. Clone Library Web Server (Menggunakan HTTPS tanpa Auth)
+          # 2. Ambil Library Web Server (Async)
           git clone --depth 1 https://github.com/me-no-dev/ESPAsyncTCP.git $LIB_PATH/ESPAsyncTCP
           git clone --depth 1 https://github.com/me-no-dev/ESPAsyncWebServer.git $LIB_PATH/ESPAsyncWebServer
+          
+          # 3. AMBIL FILE CORE DEAUTHER (Ini kuncinya!)
+          # Kita download langsung source-nya agar file .h ada di folder library
+          git clone --depth 1 https://github.com/SpacehuhnTech/ESP8266Deauther.git deauther_source
+          cp -r deauther_source/esp8266_deauther/src/libraries/Attack $LIB_PATH/
+          cp -r deauther_source/esp8266_deauther/src/libraries/Scan $LIB_PATH/
+          cp -r deauther_source/esp8266_deauther/src/libraries/A_Config $LIB_PATH/
+          cp -r deauther_source/esp8266_deauther/src/libraries/A_SSID $LIB_PATH/
+          
+          # Verifikasi file (Opsional untuk cek di log)
+          ls $LIB_PATH/A_Config/A_Config.h
 
       - name: Compile GMpro Firmware
         run: |
-          # Mendapatkan path instalasi hardware secara dinamis
-          HARDWARE_PATH=$HOME/.arduino15/packages/deauther/hardware/esp8266/$(ls $HOME/.arduino15/packages/deauther/hardware/esp8266 | head -n 1)
-          SDK_LIBS=$HARDWARE_PATH/libraries
-          
-          echo "Using SDK Libraries from: $SDK_LIBS"
-
-          # Kompilasi dengan menyertakan folder library internal SDK secara langsung
+          # Compile langsung tanpa perlu mapping path rumit lagi
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
-          --libraries $SDK_LIBS/Attack \
-          --libraries $SDK_LIBS/Scan \
-          --libraries $SDK_LIBS/A_Config \
-          --libraries $SDK_LIBS/A_SSID \
           ./GMpro1.ino --output-dir ./build
 
       - name: Upload Binary

@@ -17,26 +17,32 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Dependencies & Async Libraries
+      - name: Install Dependencies & Force SDK Headers
         run: |
-          mkdir -p $HOME/Arduino/libraries
+          LIB_PATH=$HOME/Arduino/libraries
+          mkdir -p $LIB_PATH
+          
+          # Install Library umum
           arduino-cli lib install "SimpleCLI"
-          # Clone Async Libraries
-          git clone https://github.com/me-no-dev/ESPAsyncTCP.git $HOME/Arduino/libraries/ESPAsyncTCP
-          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $HOME/Arduino/libraries/ESPAsyncWebServer
-          # Install ArduinoJson v5 (Wajib versi 5 untuk Deauther)
           arduino-cli lib install "ArduinoJson"@5.13.5
+          
+          # Clone Async Libraries
+          git clone https://github.com/me-no-dev/ESPAsyncTCP.git $LIB_PATH/ESPAsyncTCP
+          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $LIB_PATH/ESPAsyncWebServer
+          
+          # FORCE FIX: Copy file internal SDK Deauther ke folder library agar terbaca global
+          SDK_LIB_PATH=$HOME/.arduino15/packages/deauther/hardware/esp8266/2.7.5/libraries
+          cp -r $SDK_LIB_PATH/Attack $LIB_PATH/
+          cp -r $SDK_LIB_PATH/Scan $LIB_PATH/
+          cp -r $SDK_LIB_PATH/A_Config $LIB_PATH/
+          
+          # Verifikasi file ada
+          ls $LIB_PATH/Attack/src/Attack.h || ls $LIB_PATH/Attack/Attack.h
 
       - name: Compile GMpro Firmware
         run: |
-          # Mendapatkan path internal core deauther agar Attack.h terbaca
-          CORE_LIB_PATH=$HOME/.arduino15/packages/deauther/hardware/esp8266/2.7.5/libraries
-          
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
-          --libraries $CORE_LIB_PATH/Attack \
-          --libraries $CORE_LIB_PATH/Scan \
-          --libraries $CORE_LIB_PATH/A_Config \
           ./GMpro1.ino --output-dir ./build
 
       - name: Upload Binary

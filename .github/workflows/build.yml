@@ -1,7 +1,5 @@
-name: Compile GMpro Final Rescue
-
+name: GMpro Final Rescue
 on: [push, workflow_dispatch]
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,44 +10,37 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install Deauther Core
+      - name: Install Core
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install All Libraries (Force Method)
+      - name: Install Libs Manual (No Unzip)
         run: |
           LIB_PATH=$HOME/Arduino/libraries
-          mkdir -p $LIB_PATH
+          mkdir -p $LIB_PATH/A_Config $LIB_PATH/Attack $LIB_PATH/Scan
           
-          # 1. Install Library Standar
-          arduino-cli lib install "SimpleCLI"
+          # Download file eceran (Pasti berhasil, gak butuh unzip)
+          BASE="https://raw.githubusercontent.com/SpacehuhnTech/ESP8266Deauther/master/esp8266_deauther/src/libraries"
+          curl -L "$BASE/A_Config/A_Config.h" -o $LIB_PATH/A_Config/A_Config.h
+          curl -L "$BASE/Attack/Attack.h" -o $LIB_PATH/Attack/Attack.h
+          curl -L "$BASE/Attack/Attack.cpp" -o $LIB_PATH/Attack/Attack.cpp
+          curl -L "$BASE/Scan/Scan.h" -o $LIB_PATH/Scan/Scan.h
+          curl -L "$BASE/Scan/Scan.cpp" -o $LIB_PATH/Scan/Scan.cpp
+          
+          # Install Async (Pakai Library Manager aja biar aman)
+          arduino-cli lib install "ESPAsyncTCP"
+          arduino-cli lib install "ESP Async WebServer"
           arduino-cli lib install "ArduinoJson"@5.13.5
-          
-          # 2. Download Async Libraries (Tanpa Git Clone yang bermasalah)
-          curl -L https://github.com/me-no-dev/ESPAsyncTCP/archive/refs/heads/master.zip -o tcp.zip
-          unzip tcp.zip -d $LIB_PATH/ && mv $LIB_PATH/ESPAsyncTCP-master $LIB_PATH/ESPAsyncTCP
-          
-          curl -L https://github.com/me-no-dev/ESPAsyncWebServer/archive/refs/heads/master.zip -o server.zip
-          unzip server.zip -d $LIB_PATH/ && mv $LIB_PATH/ESPAsyncWebServer-master $LIB_PATH/ESPAsyncWebServer
 
-          # 3. DOWNLOAD SELURUH SDK LIBRARIES (Penting!)
-          # Kita ambil semua file .h dan .cpp agar tipe data Attack & Scan dikenali
-          curl -L https://github.com/SpacehuhnTech/ESP8266Deauther/archive/refs/heads/master.zip -o deauther.zip
-          unzip deauther.zip "ESP8266Deauther-master/esp8266_deauther/src/libraries/*" -d temp_sdk
-          cp -r temp_sdk/ESP8266Deauther-master/esp8266_deauther/src/libraries/* $LIB_PATH/
-          
-          # Bersihkan file sampah
-          rm *.zip && rm -rf temp_sdk
-
-      - name: Compile GMpro Firmware
+      - name: Compile
         run: |
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
           ./GMpro1.ino --output-dir ./build
 
-      - name: Upload Binary
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Deauther-Binary
+          name: GMpro-Firmware
           path: ./build/*.bin

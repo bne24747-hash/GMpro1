@@ -1,4 +1,4 @@
-name: Compile GMpro Deauther Ultra Fix
+name: Compile GMpro Deauther Final Solution
 
 on: [push, workflow_dispatch]
 
@@ -17,33 +17,37 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install All Libraries & SDK Headers
+      - name: Bypass and Install All Libraries
         run: |
           LIB_PATH=$HOME/Arduino/libraries
           mkdir -p $LIB_PATH
           
-          # 1. Install Library Standar
+          # 1. Install Library Standar via CLI
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson"@5.13.5
           
-          # 2. Ambil Library Web Server (Async)
-          git clone --depth 1 https://github.com/me-no-dev/ESPAsyncTCP.git $LIB_PATH/ESPAsyncTCP
-          git clone --depth 1 https://github.com/me-no-dev/ESPAsyncWebServer.git $LIB_PATH/ESPAsyncWebServer
+          # 2. Download Async Libraries via ZIP (Menghindari Git Auth Error)
+          curl -L https://github.com/me-no-dev/ESPAsyncTCP/archive/master.zip -o tcp.zip
+          unzip tcp.zip -d $LIB_PATH/ && mv $LIB_PATH/ESPAsyncTCP-master $LIB_PATH/ESPAsyncTCP
           
-          # 3. AMBIL FILE CORE DEAUTHER (Ini kuncinya!)
-          # Kita download langsung source-nya agar file .h ada di folder library
-          git clone --depth 1 https://github.com/SpacehuhnTech/ESP8266Deauther.git deauther_source
-          cp -r deauther_source/esp8266_deauther/src/libraries/Attack $LIB_PATH/
-          cp -r deauther_source/esp8266_deauther/src/libraries/Scan $LIB_PATH/
-          cp -r deauther_source/esp8266_deauther/src/libraries/A_Config $LIB_PATH/
-          cp -r deauther_source/esp8266_deauther/src/libraries/A_SSID $LIB_PATH/
+          curl -L https://github.com/me-no-dev/ESPAsyncWebServer/archive/master.zip -o server.zip
+          unzip server.zip -d $LIB_PATH/ && mv $LIB_PATH/ESPAsyncWebServer-master $LIB_PATH/ESPAsyncWebServer
           
-          # Verifikasi file (Opsional untuk cek di log)
-          ls $LIB_PATH/A_Config/A_Config.h
+          # 3. AMBIL HEADERS SDK (Metode CURL - Paling Aman)
+          # Mengambil hanya folder library yang dibutuhkan langsung dari master branch
+          mkdir -p $LIB_PATH/DeautherCore
+          curl -L https://github.com/SpacehuhnTech/ESP8266Deauther/archive/master.zip -o deauther.zip
+          unzip deauther.zip "ESP8266Deauther-master/esp8266_deauther/src/libraries/*" -d temp_sdk
+          
+          # Memindahkan file ke lokasi yang bisa dibaca compiler
+          cp -r temp_sdk/ESP8266Deauther-master/esp8266_deauther/src/libraries/* $LIB_PATH/
+          
+          # Verifikasi keberadaan file krusial
+          ls $LIB_PATH/A_Config/A_Config.h || echo "File still missing!"
 
       - name: Compile GMpro Firmware
         run: |
-          # Compile langsung tanpa perlu mapping path rumit lagi
+          # Kompilasi dengan menunjuk folder library buatan kita
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
           ./GMpro1.ino --output-dir ./build

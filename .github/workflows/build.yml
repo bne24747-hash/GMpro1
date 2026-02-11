@@ -12,12 +12,6 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-       - name: Install Async Libraries
-  run: |
-    arduino-cli lib install "ESPAsyncTCP"
-    arduino-cli lib install "ESPAsyncWebServer"
-
-
       - name: Install Spacehuhn Deauther SDK
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json

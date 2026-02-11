@@ -17,30 +17,39 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Dependencies & Force SDK Headers
+      - name: Install Dependencies & Auto-Locate SDK Headers
         run: |
           LIB_PATH=$HOME/Arduino/libraries
           mkdir -p $LIB_PATH
           
-          # Install Library umum
+          # 1. Install Library Dasar
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson"@5.13.5
           
-          # Clone Async Libraries
+          # 2. Clone Async Libraries
           git clone https://github.com/me-no-dev/ESPAsyncTCP.git $LIB_PATH/ESPAsyncTCP
           git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $LIB_PATH/ESPAsyncWebServer
           
-          # FORCE FIX: Copy file internal SDK Deauther ke folder library agar terbaca global
-          SDK_LIB_PATH=$HOME/.arduino15/packages/deauther/hardware/esp8266/2.7.5/libraries
-          cp -r $SDK_LIB_PATH/Attack $LIB_PATH/
-          cp -r $SDK_LIB_PATH/Scan $LIB_PATH/
-          cp -r $SDK_LIB_PATH/A_Config $LIB_PATH/
+          # 3. AUTO-LOCATE & COPY SDK LIBRARIES (Solusi Error cp: cannot stat)
+          # Perintah ini akan mencari folder 'Attack' di seluruh sistem dan menyalinnya
+          ATTACK_DIR=$(find $HOME/.arduino15 -name "Attack" -type d | head -n 1)
+          SCAN_DIR=$(find $HOME/.arduino15 -name "Scan" -type d | head -n 1)
+          CONFIG_DIR=$(find $HOME/.arduino15 -name "A_Config" -type d | head -n 1)
           
-          # Verifikasi file ada
-          ls $LIB_PATH/Attack/src/Attack.h || ls $LIB_PATH/Attack/Attack.h
+          if [ -z "$ATTACK_DIR" ]; then
+            echo "Error: SDK Libraries not found!"
+            exit 1
+          fi
+          
+          cp -r "$ATTACK_DIR" $LIB_PATH/
+          cp -r "$SCAN_DIR" $LIB_PATH/
+          cp -r "$CONFIG_DIR" $LIB_PATH/
+          
+          echo "SDK Libraries successfully copied from: $ATTACK_DIR"
 
       - name: Compile GMpro Firmware
         run: |
+          # Gunakan flag --libraries agar mengarah ke folder yang sudah kita isi
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
           ./GMpro1.ino --output-dir ./build

@@ -19,31 +19,24 @@ jobs:
 
       - name: Install Dependencies & Async Libraries
         run: |
-          # 1. Buat direktori library jika belum ada
           mkdir -p $HOME/Arduino/libraries
-          
-          # 2. Install library yang tersedia di manager
           arduino-cli lib install "SimpleCLI"
-          
-          # 3. FIX: Clone library Async yang hilang (Penyebab Error)
+          # Clone Async Libraries
           git clone https://github.com/me-no-dev/ESPAsyncTCP.git $HOME/Arduino/libraries/ESPAsyncTCP
           git clone https://github.com/me-no-dev/ESPAsyncWebServer.git $HOME/Arduino/libraries/ESPAsyncWebServer
-          
-          # 4. Handle ArduinoJson (Gunakan library manager jika memungkinkan atau tetap unzip)
-          if [ -f "ArduinoJson-5.13.5.zip" ]; then
-            unzip -o ArduinoJson-5.13.5.zip -d $HOME/Arduino/libraries/
-          else
-            arduino-cli lib install "ArduinoJson"@5.13.5
-          fi
-          
-          # 5. Verifikasi folder library
-          ls -R $HOME/Arduino/libraries/
+          # Install ArduinoJson v5 (Wajib versi 5 untuk Deauther)
+          arduino-cli lib install "ArduinoJson"@5.13.5
 
       - name: Compile GMpro Firmware
         run: |
-          # Menggunakan FQBN deauther:esp8266:generic dengan Flash Size 4MB (2MB FS)
+          # Mendapatkan path internal core deauther agar Attack.h terbaca
+          CORE_LIB_PATH=$HOME/.arduino15/packages/deauther/hardware/esp8266/2.7.5/libraries
+          
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries $HOME/Arduino/libraries \
+          --libraries $CORE_LIB_PATH/Attack \
+          --libraries $CORE_LIB_PATH/Scan \
+          --libraries $CORE_LIB_PATH/A_Config \
           ./GMpro1.ino --output-dir ./build
 
       - name: Upload Binary
